@@ -46,6 +46,22 @@ func main() {
 				echoText,
 			)
 			_, err = conn.Write([]byte(response))
+		} else if strings.HasPrefix(path, "/user-agent") {
+			fmt.Printf("%s", string(req))
+			_, agent, _ := strings.Cut(string(req), "User-Agent:")
+			agent = strings.Trim(agent, "\r\n ")
+			agent = strings.Split(agent, "\r\n")[0]
+			status := "OK"
+			statusCode := 200
+			fmt.Println(agent)
+			response := fmt.Sprintf(
+				"HTTP/1.1 %d %s\r\nContent-Type: text/plain\r\nContent-Length: %d\r\n\r\n%s",
+				statusCode,
+				status,
+				len(agent),
+				agent,
+			)
+			_, err = conn.Write([]byte(response))
 		} else {
 			_, err = conn.Write([]byte("HTTP/1.1 404 Not Found\r\n\r\n"))
 		}
