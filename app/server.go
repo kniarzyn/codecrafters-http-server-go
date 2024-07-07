@@ -1,20 +1,28 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"log"
 	"net"
+	"os"
 	"strings"
 )
 
-func handleConnection(conn net.Conn) {
-	req := make([]byte, 1024)
-	_, err := conn.Read(req)
+type HTTPRequest struct {
+	conn net.Conn
+	dir  *string
+}
+
+func handleConnection(req HTTPRequest) {
+	reqBuff := make([]byte, 1024)
+	conn := req.conn
+	_, err := conn.Read(reqBuff)
 	if err != nil {
 		log.Fatalf("%s", err)
 	}
 
-	path := strings.Split(string(req), " ")[1]
+	path := strings.Split(string(reqBuff), " ")[1]
 
 	if path == "/" {
 		_, err = conn.Write([]byte("HTTP/1.1 200 OK\r\n\r\n"))
@@ -31,8 +39,8 @@ func handleConnection(conn net.Conn) {
 		)
 		_, err = conn.Write([]byte(response))
 	} else if strings.HasPrefix(path, "/user-agent") {
-		fmt.Printf("%s", string(req))
-		_, agent, _ := strings.Cut(string(req), "User-Agent:")
+		fmt.Printf("%s", string(reqBuff))
+		_, agent, _ := strings.Cut(string(reqBuff), "User-Agent:")
 		agent = strings.Trim(agent, "\r\n ")
 		agent = strings.Split(agent, "\r\n")[0]
 		status := "OK"
@@ -45,6 +53,29 @@ func handleConnection(conn net.Conn) {
 			agent,
 		)
 		_, err = conn.Write([]byte(response))
+	} else if strings.HasPrefix(path, "/files") {
+		if *req.dir == "" {
+			log.Println("server runs without file support")
+			_, _ = conn.Write([]byte("HTTP/1.1 404 Not Found\r\n\r\n"))
+			conn.Close()
+			return
+		}
+		if _, err = os.Stat(*req.dir); os.IsNotExist(err) {
+			log.Println("this endpoint need directory flag to be given")
+			_, _ = conn.Write([]byte("HTTP/1.1 404 Not Found\r\n\r\n"))
+			conn.Close()
+			return
+		}
+		_, filename, _ := strings.Cut(path, "/files/")
+		dat, err := os.ReadFile(*req.dir + filename)
+		if err != nil {
+			_, _ = conn.Write([]byte("HTTP/1.1 404 Not Found\r\n\r\n"))
+			conn.Close()
+			return
+		}
+		res := fmt.Sprintf("HTTP/1.1 200 OK\r\n\r\n%s", string(dat))
+		_, _ = conn.Write([]byte(res))
+		conn.Close()
 	} else {
 		_, err = conn.Write([]byte("HTTP/1.1 404 Not Found\r\n\r\n"))
 	}
@@ -58,6 +89,8 @@ func handleConnection(conn net.Conn) {
 var port = 4221
 
 func main() {
+	dir := flag.String("directory", "", "directory contains files")
+	flag.Parse()
 	address := fmt.Sprintf(":%d", port)
 	l, err := net.Listen("tcp", address)
 	if err != nil {
@@ -72,6 +105,10 @@ func main() {
 		if err != nil {
 			log.Fatalln("Error accepting connection: ", err.Error())
 		}
-		go handleConnection(conn)
+		req := HTTPRequest{
+			dir:  dir,
+			conn: conn,
+		}
+		go handleConnection(req)
 	}
 }
