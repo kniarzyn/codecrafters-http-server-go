@@ -7,6 +7,54 @@ import (
 	"strings"
 )
 
+func handleConnection(conn net.Conn) {
+	req := make([]byte, 1024)
+	_, err := conn.Read(req)
+	if err != nil {
+		log.Fatalf("%s", err)
+	}
+
+	path := strings.Split(string(req), " ")[1]
+
+	if path == "/" {
+		_, err = conn.Write([]byte("HTTP/1.1 200 OK\r\n\r\n"))
+	} else if strings.HasPrefix(path, "/echo/") {
+		echoText, _ := strings.CutPrefix(path, "/echo/")
+		status := "OK"
+		statusCode := 200
+		response := fmt.Sprintf(
+			"HTTP/1.1 %d %s\r\nContent-Type: text/plain\r\nContent-Length: %d\r\n\r\n%s",
+			statusCode,
+			status,
+			len(echoText),
+			echoText,
+		)
+		_, err = conn.Write([]byte(response))
+	} else if strings.HasPrefix(path, "/user-agent") {
+		fmt.Printf("%s", string(req))
+		_, agent, _ := strings.Cut(string(req), "User-Agent:")
+		agent = strings.Trim(agent, "\r\n ")
+		agent = strings.Split(agent, "\r\n")[0]
+		status := "OK"
+		statusCode := 200
+		response := fmt.Sprintf(
+			"HTTP/1.1 %d %s\r\nContent-Type: text/plain\r\nContent-Length: %d\r\n\r\n%s",
+			statusCode,
+			status,
+			len(agent),
+			agent,
+		)
+		_, err = conn.Write([]byte(response))
+	} else {
+		_, err = conn.Write([]byte("HTTP/1.1 404 Not Found\r\n\r\n"))
+	}
+	if err != nil {
+		log.Fatalln("Error while writing response.")
+	}
+	conn.Close()
+
+}
+
 var port = 4221
 
 func main() {
@@ -19,55 +67,11 @@ func main() {
 	defer l.Close()
 	log.Printf("Starting HTTP server on port: %d\n", port)
 
-	req := make([]byte, 1024)
 	for {
 		conn, err := l.Accept()
 		if err != nil {
-      log.Fatalln("Error accepting connection: ", err.Error())
+			log.Fatalln("Error accepting connection: ", err.Error())
 		}
-		_, err = conn.Read(req)
-		if err != nil {
-			log.Fatalf("%s", err)
-		}
-
-		path := strings.Split(string(req), " ")[1]
-
-		if path == "/" {
-			_, err = conn.Write([]byte("HTTP/1.1 200 OK\r\n\r\n"))
-		} else if strings.HasPrefix(path, "/echo/") {
-			echoText, _ := strings.CutPrefix(path, "/echo/")
-			status := "OK"
-			statusCode := 200
-			response := fmt.Sprintf(
-				"HTTP/1.1 %d %s\r\nContent-Type: text/plain\r\nContent-Length: %d\r\n\r\n%s",
-				statusCode,
-				status,
-				len(echoText),
-				echoText,
-			)
-			_, err = conn.Write([]byte(response))
-		} else if strings.HasPrefix(path, "/user-agent") {
-			fmt.Printf("%s", string(req))
-			_, agent, _ := strings.Cut(string(req), "User-Agent:")
-			agent = strings.Trim(agent, "\r\n ")
-			agent = strings.Split(agent, "\r\n")[0]
-			status := "OK"
-			statusCode := 200
-			fmt.Println(agent)
-			response := fmt.Sprintf(
-				"HTTP/1.1 %d %s\r\nContent-Type: text/plain\r\nContent-Length: %d\r\n\r\n%s",
-				statusCode,
-				status,
-				len(agent),
-				agent,
-			)
-			_, err = conn.Write([]byte(response))
-		} else {
-			_, err = conn.Write([]byte("HTTP/1.1 404 Not Found\r\n\r\n"))
-		}
-		if err != nil {
-			log.Fatalln("Error while writing response.")
-		}
-		conn.Close()
+		go handleConnection(conn)
 	}
 }
