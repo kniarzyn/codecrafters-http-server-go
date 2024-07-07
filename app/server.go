@@ -73,7 +73,13 @@ func handleConnection(req HTTPRequest) {
 			conn.Close()
 			return
 		}
-		res := fmt.Sprintf("HTTP/1.1 200 OK\r\n\r\n%s", string(dat))
+		res := fmt.Sprintf(
+			"HTTP/1.1 %d %s\r\nContent-Type: application/octet-stream\r\nContent-Length: %d\r\n\r\n%s",
+			200,
+			"OK",
+			len(dat),
+			string(dat),
+		)
 		_, _ = conn.Write([]byte(res))
 		conn.Close()
 	} else {
