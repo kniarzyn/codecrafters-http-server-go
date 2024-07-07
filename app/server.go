@@ -4,34 +4,33 @@ import (
 	"fmt"
 	"log"
 	"net"
-	"os"
 	"strings"
 )
 
+var port = 4221
+
 func main() {
-	l, err := net.Listen("tcp", "0.0.0.0:4221")
+	address := fmt.Sprintf(":%d", port)
+	l, err := net.Listen("tcp", address)
 	if err != nil {
-		fmt.Println("Failed to bind to port 4221")
-		os.Exit(1)
+		log.Fatalf("Failed to bind to port %d\n", port)
 	}
+
 	defer l.Close()
-	log.Printf("Starting HTTP server on port: %d\n", 4221)
+	log.Printf("Starting HTTP server on port: %d\n", port)
 
 	req := make([]byte, 1024)
-
 	for {
 		conn, err := l.Accept()
 		if err != nil {
-			fmt.Println("Error accepting connection: ", err.Error())
-			os.Exit(1)
+      log.Fatalln("Error accepting connection: ", err.Error())
 		}
 		_, err = conn.Read(req)
 		if err != nil {
 			log.Fatalf("%s", err)
 		}
 
-		path := strings.Split(string(req), "\r\n")[0]
-		path = strings.Split(path, " ")[1]
+		path := strings.Split(string(req), " ")[1]
 
 		if path == "/" {
 			_, err = conn.Write([]byte("HTTP/1.1 200 OK\r\n\r\n"))
@@ -39,8 +38,7 @@ func main() {
 			_, err = conn.Write([]byte("HTTP/1.1 404 Not Found\r\n\r\n"))
 		}
 		if err != nil {
-			log.Println("Error while writing response.")
-			os.Exit(1)
+			log.Fatalln("Error while writing response.")
 		}
 		conn.Close()
 	}
