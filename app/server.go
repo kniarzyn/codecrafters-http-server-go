@@ -6,6 +6,7 @@ import (
 	"log"
 	"net"
 	"os"
+	"strconv"
 	"strings"
 )
 
@@ -121,7 +122,9 @@ func handleConnection(req HTTPRequest) {
 		filePath := *dir + "/" + filename
 		if r.method == "POST" {
 			log.Printf("parsing POST request with file path: %s", filePath)
-			dat := []byte(r.body)
+			fmt.Printf("Body: %v", r.headers["content-length"])
+			bodyLength, _ := strconv.Atoi(r.headers["content-length"])
+			dat := []byte(r.body)[:bodyLength]
 			err = os.WriteFile(filePath, dat, 0666)
 			if err != nil {
 				log.Printf("error creating file: %s \n%s", filePath, err)
