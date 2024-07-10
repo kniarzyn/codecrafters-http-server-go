@@ -10,8 +10,12 @@ import (
 )
 
 type HTTPRequest struct {
-	conn net.Conn
-	dir  *string
+	conn    net.Conn
+	dir     *string
+	method  string
+	path    string
+	body    string
+	headers map[string]string
 }
 
 type HTTPResponse struct {
@@ -21,6 +25,31 @@ type HTTPResponse struct {
 	contentType   string
 	contentLength int
 	statusCode    int
+}
+
+func parseRequest(r string) HTTPRequest {
+	var req HTTPRequest
+	head, body, _ := strings.Cut(r, "\r\n\r\n")
+	headLines := strings.Split(head, "\r\n")
+
+	hs := make(map[string]string)
+
+	for _, h := range headLines[1:] {
+		key, value, _ := strings.Cut(h, ":")
+		key = strings.ToLower(key)
+		value = strings.Trim(value, " \r\n")
+		hs[key] = value
+	}
+
+	req.headers = hs
+	url := strings.Split(headLines[0], " ")
+	req.method = url[0]
+	req.path = url[1]
+	req.body = string(strings.Trim(body, " \r\n"))
+
+	fmt.Printf("%+v\n", req)
+
+	return req
 }
 
 func (res *HTTPResponse) build(body, status, contentType string, statusCode int) {
@@ -34,6 +63,9 @@ func (res *HTTPResponse) build(body, status, contentType string, statusCode int)
 
 func (res *HTTPResponse) make() []byte {
 	res.contentLength = len(res.body)
+	if res.protocol == "" {
+		res.protocol = "HTTP/1.1"
+	}
 	s := fmt.Sprintf(
 		"%s %d %s\r\nContent-Type: %s\r\nContent-Length: %d\r\n\r\n%s",
 		res.protocol,
@@ -54,49 +86,65 @@ func handleConnection(req HTTPRequest) {
 	if err != nil {
 		log.Fatalf("%s", err)
 	}
+	r := parseRequest(string(reqBuff))
 
-	path := strings.Split(string(reqBuff), " ")[1]
+	// path := strings.Split(string(reqBuff), " ")[1]
 
-	if path == "/" {
+	if r.path == "/" {
 		_, err = conn.Write([]byte("HTTP/1.1 200 OK\r\n\r\n"))
-	} else if strings.HasPrefix(path, "/echo/") {
-		res.body, _ = strings.CutPrefix(path, "/echo/")
+	} else if strings.HasPrefix(r.path, "/echo/") {
+		res.body, _ = strings.CutPrefix(r.path, "/echo/")
 		res.status = "OK"
 		res.statusCode = 200
-		res.contentType = "text/plain"
+		res.contentType = "text/plain;charset=UTF-8"
 		_, err = conn.Write(res.make())
-	} else if strings.HasPrefix(path, "/user-agent") {
-		_, agent, _ := strings.Cut(string(reqBuff), "User-Agent:")
-		agent = strings.Trim(agent, "\r\n ")
-		res.body = strings.Split(agent, "\r\n")[0]
+	} else if strings.HasPrefix(r.path, "/user-agent") {
+		res.body = r.headers["user-agent"]
 		res.status = "OK"
 		res.statusCode = 200
 		_, err = conn.Write(res.make())
-	} else if strings.HasPrefix(path, "/files") {
-		if *req.dir == "" {
+	} else if strings.HasPrefix(r.path, "/files") {
+		if *dir == "" {
 			log.Println("server runs without file support")
 			_, _ = conn.Write([]byte("HTTP/1.1 404 Not Found\r\n\r\n"))
 			conn.Close()
 			return
 		}
-		if _, err = os.Stat(*req.dir); os.IsNotExist(err) {
+		if _, err = os.Stat(*dir); os.IsNotExist(err) {
 			log.Println("this endpoint need directory flag to be given")
 			_, _ = conn.Write([]byte("HTTP/1.1 404 Not Found\r\n\r\n"))
 			conn.Close()
 			return
 		}
-		_, filename, _ := strings.Cut(path, "/files/")
-		dat, err := os.ReadFile(*req.dir + filename)
-		if err != nil {
-			_, _ = conn.Write([]byte("HTTP/1.1 404 Not Found\r\n\r\n"))
-			conn.Close()
+
+		_, filename, _ := strings.Cut(r.path, "/files/")
+		filePath := *dir + "/" + filename
+		if r.method == "POST" {
+			log.Printf("parsing POST request with file path: %s", filePath)
+			dat := []byte(r.body)
+			err = os.WriteFile(filePath, dat, 0666)
+			if err != nil {
+				log.Printf("error creating file: %s \n%s", filePath, err)
+			}
+			res.body = string(dat)
+			res.statusCode = 201
+			res.status = "Created"
+			_, _ = conn.Write(res.make())
 			return
+		} else {
+			dat, err := os.ReadFile(filePath)
+			if err != nil {
+				_, _ = conn.Write([]byte("HTTP/1.1 404 Not Found\r\n\r\n"))
+				conn.Close()
+				return
+			}
+			res.body = string(dat)
+			res.statusCode = 200
+			res.status = "OK"
+			res.contentType = "application/octet-stream"
+			_, _ = conn.Write(res.make())
+
 		}
-		res.body = string(dat)
-		res.statusCode = 200
-		res.status = "OK"
-		res.contentType = "application/octet-stream"
-		_, _ = conn.Write(res.make())
 		conn.Close()
 	} else {
 		_, err = conn.Write([]byte("HTTP/1.1 404 Not Found\r\n\r\n"))
@@ -107,10 +155,13 @@ func handleConnection(req HTTPRequest) {
 	conn.Close()
 }
 
-var port = 4221
+var (
+	port = 4221
+	dir  *string
+)
 
 func main() {
-	dir := flag.String("directory", "", "directory contains files")
+	dir = flag.String("directory", "", "directory contains files")
 	flag.Parse()
 	address := fmt.Sprintf(":%d", port)
 	l, err := net.Listen("tcp", address)
