@@ -103,6 +103,7 @@ func handleConnection(req HTTPRequest) {
 		res.body = r.headers["user-agent"]
 		res.status = "OK"
 		res.statusCode = 200
+		res.contentType = "text/plain;charset=UTF-8"
 		_, err = conn.Write(res.make())
 	} else if strings.HasPrefix(r.path, "/files") {
 		if *dir == "" {
