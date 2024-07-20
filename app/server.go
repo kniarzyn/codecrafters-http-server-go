@@ -20,12 +20,13 @@ type HTTPRequest struct {
 }
 
 type HTTPResponse struct {
-	protocol      string
-	body          string
-	status        string
-	contentType   string
-	contentLength int
-	statusCode    int
+	protocol        string
+	body            string
+	status          string
+	contentType     string
+	contentLength   int
+	contentEncoding string
+	statusCode      int
 }
 
 func parseRequest(r string) HTTPRequest {
@@ -67,13 +68,20 @@ func (res *HTTPResponse) make() []byte {
 	if res.protocol == "" {
 		res.protocol = "HTTP/1.1"
 	}
+	headers := fmt.Sprintf(
+		"Content-Type: %s\r\nContent-Length: %d",
+		res.contentType,
+		res.contentLength,
+	)
+	if res.contentEncoding != "" {
+		headers = fmt.Sprintf("%s\r\nContent-Encoding: gzip", headers)
+	}
 	s := fmt.Sprintf(
-		"%s %d %s\r\nContent-Type: %s\r\nContent-Length: %d\r\n\r\n%s",
+		"%s %d %s\r\n%s\r\n\r\n%s",
 		res.protocol,
 		res.statusCode,
 		res.status,
-		res.contentType,
-		res.contentLength,
+		headers,
 		res.body,
 	)
 	return []byte(s)
@@ -94,6 +102,12 @@ func handleConnection(req HTTPRequest) {
 	if r.path == "/" {
 		_, err = conn.Write([]byte("HTTP/1.1 200 OK\r\n\r\n"))
 	} else if strings.HasPrefix(r.path, "/echo/") {
+
+		acceptEncoding := strings.Split(r.headers["accept-encoding"], ",")
+		fmt.Printf("AcceptEncoding: %+v", acceptEncoding)
+		if strings.Contains(r.headers["accept-encoding"], "gzip") {
+			res.contentEncoding = "gzip"
+		}
 		res.body, _ = strings.CutPrefix(r.path, "/echo/")
 		res.status = "OK"
 		res.statusCode = 200
