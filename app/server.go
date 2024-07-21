@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bytes"
+	"compress/gzip"
 	"flag"
 	"fmt"
 	"log"
@@ -13,19 +15,19 @@ import (
 type HTTPRequest struct {
 	conn    net.Conn
 	dir     *string
+	headers map[string]string
 	method  string
 	path    string
 	body    string
-	headers map[string]string
 }
 
 type HTTPResponse struct {
 	protocol        string
-	body            string
+	body            []byte
 	status          string
 	contentType     string
-	contentLength   int
 	contentEncoding string
+	contentLength   int
 	statusCode      int
 }
 
@@ -54,7 +56,7 @@ func parseRequest(r string) HTTPRequest {
 	return req
 }
 
-func (res *HTTPResponse) build(body, status, contentType string, statusCode int) {
+func (res *HTTPResponse) build(body []byte, status, contentType string, statusCode int) {
 	res.protocol = "HTTP/1.1"
 	res.body = body
 	res.status = status
@@ -87,6 +89,17 @@ func (res *HTTPResponse) make() []byte {
 	return []byte(s)
 }
 
+func commpressBody(body string) ([]byte, error) {
+	var buf bytes.Buffer
+	zw := gzip.NewWriter(&buf)
+	_, err := zw.Write([]byte(body))
+	if err != nil {
+		return nil, err
+	}
+	zw.Close()
+	return buf.Bytes(), nil
+}
+
 func handleConnection(req HTTPRequest) {
 	reqBuff := make([]byte, 1024)
 	res := HTTPResponse{}
@@ -103,18 +116,21 @@ func handleConnection(req HTTPRequest) {
 		_, err = conn.Write([]byte("HTTP/1.1 200 OK\r\n\r\n"))
 	} else if strings.HasPrefix(r.path, "/echo/") {
 
-		acceptEncoding := strings.Split(r.headers["accept-encoding"], ",")
-		fmt.Printf("AcceptEncoding: %+v", acceptEncoding)
+		body, _ := strings.CutPrefix(r.path, "/echo/")
 		if strings.Contains(r.headers["accept-encoding"], "gzip") {
 			res.contentEncoding = "gzip"
+			cbody, _ := commpressBody(body)
+			fmt.Printf("CBody: %#v\n", cbody)
+			res.body = cbody
+		} else {
+			res.body = []byte(body)
 		}
-		res.body, _ = strings.CutPrefix(r.path, "/echo/")
 		res.status = "OK"
 		res.statusCode = 200
 		res.contentType = "text/plain"
 		_, err = conn.Write(res.make())
 	} else if strings.HasPrefix(r.path, "/user-agent") {
-		res.body = r.headers["user-agent"]
+		res.body = []byte(r.headers["user-agent"])
 		res.status = "OK"
 		res.statusCode = 200
 		res.contentType = "text/plain"
@@ -144,7 +160,7 @@ func handleConnection(req HTTPRequest) {
 			if err != nil {
 				log.Printf("error creating file: %s \n%s", filePath, err)
 			}
-			res.body = string(dat)
+			res.body = dat
 			res.statusCode = 201
 			res.status = "Created"
 			_, _ = conn.Write(res.make())
@@ -156,7 +172,7 @@ func handleConnection(req HTTPRequest) {
 				conn.Close()
 				return
 			}
-			res.body = string(dat)
+			res.body = dat
 			res.statusCode = 200
 			res.status = "OK"
 			res.contentType = "application/octet-stream"
