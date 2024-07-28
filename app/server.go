@@ -90,15 +90,22 @@ func commpressBody(body string) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-func handleFiles(res HTTPResponse, req HTTPRequest) {
+func handleRoot(res *HTTPResponse, req HTTPRequest) {
+	res.statusCode = 200
+	res.status = "OK"
+}
+
+func handleFiles(res *HTTPResponse, req HTTPRequest) {
 	if *dir == "" {
 		log.Println("server runs without file support")
-		_, _ = req.conn.Write([]byte("HTTP/1.1 404 Not Found\r\n\r\n"))
+		res.status = "Not Found"
+		res.statusCode = 404
 		return
 	}
 	if _, err := os.Stat(*dir); os.IsNotExist(err) {
 		log.Println("this endpoint need directory flag to be given")
-		_, _ = req.conn.Write([]byte("HTTP/1.1 404 Not Found\r\n\r\n"))
+		res.status = "Not Found"
+		res.statusCode = 404
 		return
 	}
 
@@ -120,7 +127,8 @@ func handleFiles(res HTTPResponse, req HTTPRequest) {
 	} else {
 		dat, err := os.ReadFile(filePath)
 		if err != nil {
-			_, _ = req.conn.Write([]byte("HTTP/1.1 404 Not Found\r\n\r\n"))
+			res.status = "Not Found"
+			res.statusCode = 404
 			return
 		}
 		res.body = dat
@@ -129,6 +137,29 @@ func handleFiles(res HTTPResponse, req HTTPRequest) {
 		res.contentType = "application/octet-stream"
 		res.contentLength = len(res.body)
 	}
+}
+
+func handleEcho(res *HTTPResponse, req HTTPRequest) {
+	body, _ := strings.CutPrefix(req.path, "/echo/")
+	if strings.Contains(req.headers["accept-encoding"], "gzip") {
+		res.contentEncoding = "gzip"
+		cbody, _ := commpressBody(body)
+		res.body = cbody
+	} else {
+		res.body = []byte(body)
+	}
+	res.status = "OK"
+	res.statusCode = 200
+	res.contentType = "text/plain"
+	res.contentLength = len(res.body)
+}
+
+func handleUserAgent(res *HTTPResponse, req HTTPRequest) {
+	res.body = []byte(req.headers["user-agent"])
+	res.contentLength = len(res.body)
+	res.status = "OK"
+	res.statusCode = 200
+	res.contentType = "text/plain"
 }
 
 func handleConnection(req HTTPRequest) {
@@ -144,33 +175,18 @@ func handleConnection(req HTTPRequest) {
 
 	switch {
 	case r.path == "/":
-		io.Copy(conn, strings.NewReader("HTTP/1.1 200 OK\r\n\r\n"))
+		handleRoot(&res, r)
 	case strings.HasPrefix(r.path, "/echo/"):
-		body, _ := strings.CutPrefix(r.path, "/echo/")
-		if strings.Contains(r.headers["accept-encoding"], "gzip") {
-			res.contentEncoding = "gzip"
-			cbody, _ := commpressBody(body)
-			res.body = cbody
-		} else {
-			res.body = []byte(body)
-		}
-		res.status = "OK"
-		res.statusCode = 200
-		res.contentType = "text/plain"
-		res.contentLength = len(res.body)
-		io.Copy(conn, res)
+		handleEcho(&res, r)
 	case strings.HasPrefix(r.path, "/user-agent"):
-		res.body = []byte(r.headers["user-agent"])
-		res.contentLength = len(res.body)
-		res.status = "OK"
-		res.statusCode = 200
-		res.contentType = "text/plain"
-		io.Copy(conn, res)
+		handleUserAgent(&res, r)
 	case strings.HasPrefix(r.path, "/files") && *dir != "":
-		handleFiles(res, r)
+		handleFiles(&res, r)
 	default:
-		conn.Write([]byte("HTTP/1.1 404 Not Found\r\n\r\n"))
+		res.status = "Not Found"
+		res.statusCode = 404
 	}
+	io.Copy(conn, res)
 }
 
 var (
