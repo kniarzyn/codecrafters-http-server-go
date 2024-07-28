@@ -163,15 +163,22 @@ func handleUserAgent(res *HTTPResponse, req HTTPRequest) {
 }
 
 func handleConnection(req HTTPRequest) {
-	reqBuff := make([]byte, 1024)
+	reqBuff := make([]byte, 32)
+	rawReq := []byte{}
 	res := HTTPResponse{}
 	conn := req.conn
 	defer conn.Close()
-	_, err := conn.Read(reqBuff)
-	if err != nil {
-		log.Fatalf("%s", err)
+	for {
+		n, err := conn.Read(reqBuff)
+		if err != nil {
+			if err != io.EOF {
+				log.Fatalf("%s", err)
+			}
+			break
+		}
+		rawReq = append(rawReq, reqBuff[:n]...)
 	}
-	r := parseRequest(string(reqBuff))
+	r := parseRequest(string(rawReq))
 
 	switch {
 	case r.path == "/":
