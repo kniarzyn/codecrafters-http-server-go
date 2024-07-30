@@ -14,8 +14,6 @@ import (
 )
 
 type HTTPRequest struct {
-	conn    net.Conn
-	dir     *string
 	headers map[string]string
 	method  string
 	path    string
@@ -162,33 +160,33 @@ func handleUserAgent(res *HTTPResponse, req HTTPRequest) {
 	res.contentType = "text/plain"
 }
 
-func handleConnection(req HTTPRequest) {
+func handleConnection(conn net.Conn) {
 	reqBuff := make([]byte, 32)
 	rawReq := []byte{}
 	res := HTTPResponse{}
-	conn := req.conn
 	defer conn.Close()
 	for {
 		n, err := conn.Read(reqBuff)
-		if err != nil {
-			if err != io.EOF {
-				log.Fatalf("%s", err)
-			}
+		rawReq = append(rawReq, reqBuff[:n]...)
+		if err == io.EOF {
 			break
 		}
-		rawReq = append(rawReq, reqBuff[:n]...)
+		if err != nil {
+			log.Fatalf("%s", err)
+		}
 	}
-	r := parseRequest(string(rawReq))
+	req := parseRequest(string(rawReq))
+	log.Printf("Req: %+v\n", req)
 
 	switch {
-	case r.path == "/":
-		handleRoot(&res, r)
-	case strings.HasPrefix(r.path, "/echo/"):
-		handleEcho(&res, r)
-	case strings.HasPrefix(r.path, "/user-agent"):
-		handleUserAgent(&res, r)
-	case strings.HasPrefix(r.path, "/files") && *dir != "":
-		handleFiles(&res, r)
+	case req.path == "/":
+		handleRoot(&res, req)
+	case strings.HasPrefix(req.path, "/echo/"):
+		handleEcho(&res, req)
+	case strings.HasPrefix(req.path, "/user-agent"):
+		handleUserAgent(&res, req)
+	case strings.HasPrefix(req.path, "/files") && *dir != "":
+		handleFiles(&res, req)
 	default:
 		res.status = "Not Found"
 		res.statusCode = 404
@@ -218,10 +216,6 @@ func main() {
 		if err != nil {
 			log.Fatalln("Error accepting connection: ", err.Error())
 		}
-		req := HTTPRequest{
-			dir:  dir,
-			conn: conn,
-		}
-		go handleConnection(req)
+		go handleConnection(conn)
 	}
 }
