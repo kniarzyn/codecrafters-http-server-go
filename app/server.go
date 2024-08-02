@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"compress/gzip"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -11,6 +12,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 )
 
 type HTTPRequest struct {
@@ -166,13 +168,15 @@ func handleConnection(conn net.Conn) {
 	res := HTTPResponse{}
 	defer conn.Close()
 	for {
+		conn.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
 		n, err := conn.Read(reqBuff)
 		rawReq = append(rawReq, reqBuff[:n]...)
-		if err == io.EOF {
+		if errors.Is(err, os.ErrDeadlineExceeded) {
 			break
 		}
 		if err != nil {
-			log.Fatalf("%s", err)
+			log.Printf("%v\n", err)
+			return
 		}
 	}
 	req := parseRequest(string(rawReq))
